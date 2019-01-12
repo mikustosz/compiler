@@ -39,13 +39,20 @@ python -m src.main > experiments/Siemanko.j && java -jar lib/jasmin.jar experime
 ## Frontend rules
 OK There should be at leas one main function in the code
 OK If a function is used it must be declared anywhere
- * If a function is used it must have arguments of the same type as declared
+OK If a function is used it must have arguments of the same type as declared
  * If a var is used it must be declared BEFORE usage
- * A var must not be assigned value of a wrong type
- * A var must not be declared twice
- * if a function is declared as a type it must always return this type
- * number of arguments in function must always be as declared
+OK A var must not be assigned value of a wrong type
+OK A var must not be declared twice
+OK Var type shouldn't be void
+OK if a function is declared as a type it must always return this type
+OK if a function returnes void it musn't return anything
+OK number of arguments in function must always be as declared
  * return function must be reachable
- * return must be of the same type
- * expressions: you cannot mix types! 
- * you cannot pass wrong types to functions
+ * any function with type other than void must have at least one return function with correct type
+OK return must be of the same type
+OK expressions: you cannot mix types! 
+OK you cannot pass wrong types to functions
+
+## TODO
+ - variables in blocks
+ - return reachability

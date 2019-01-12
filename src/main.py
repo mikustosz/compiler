@@ -2,7 +2,7 @@ import os, sys
 from antlr4 import *
 from gen.LatteLexer import LatteLexer
 from gen.LatteParser import LatteParser
-from src.Visitors import FunctionReaderVisitor, FrontendValidationVisitor
+from src.Visitors import FunctionReaderVisitor, FrontendValidationVisitor, ReturnReachabilityVisitor, check_reachability
 from src.CustomErrorListener import CustomErrorListener
 
 
@@ -19,10 +19,11 @@ def main(argv, compiler):
         return
     input_stream = FileStream(file_path)
     lexer = LatteLexer(input_stream)
-    lexer._listeners = [CustomErrorListener()]  # Hack to change default behavior of lexer/parser errors
     token_stream = CommonTokenStream(lexer)
     parser = LatteParser(token_stream)
-    parser._listeners = [CustomErrorListener()]
+    # TODO uncomment the line for correct errors? But then shows too much errors
+    # lexer._listeners = [CustomErrorListener()]  # Hack to change default behavior of lexer/parser errors
+    # parser._listeners = [CustomErrorListener()]
     tree = parser.program()
     # print(tree.toStringTree(recog=parser))  # TODO Debug
 
@@ -33,6 +34,8 @@ def main(argv, compiler):
 
         frontendValidation = FrontendValidationVisitor(functions)
         frontendValidation.visit(tree)
+
+        check_reachability(tree, functions)
 
 
         # llvm_code = visitor.get_llvm()
