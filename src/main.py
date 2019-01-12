@@ -1,8 +1,10 @@
-import os
+import os, sys
 from antlr4 import *
 from gen.LatteLexer import LatteLexer
 from gen.LatteParser import LatteParser
-from src.LLVMVisitor import LLVMVisitor
+from src.Visitors import FunctionReaderVisitor, FrontendValidationVisitor
+from src.CustomErrorListener import CustomErrorListener
+
 
 
 def main(argv, compiler):
@@ -17,20 +19,31 @@ def main(argv, compiler):
         return
     input_stream = FileStream(file_path)
     lexer = LatteLexer(input_stream)
+    lexer._listeners = [CustomErrorListener()]  # Hack to change default behavior of lexer/parser errors
     token_stream = CommonTokenStream(lexer)
     parser = LatteParser(token_stream)
+    parser._listeners = [CustomErrorListener()]
     tree = parser.program()
+    # print(tree.toStringTree(recog=parser))  # TODO Debug
 
     if compiler == "llvm":
-        visitor = LLVMVisitor()
-        visitor.visit(tree)
-        llvm_code = visitor.get_llvm()
-        with open(base_path + ".ll", "w") as file:
-            print(llvm_code, file=file)
-        print("Generated: " + base_path + ".ll")
-        os.system(f"llvm-as {base_path}.ll")
-        print("Generated: " + base_path + ".bc")
+        functionReader = FunctionReaderVisitor()
+        functionReader.visit(tree)
+        functions = functionReader.get_functions()
 
+        frontendValidation = FrontendValidationVisitor(functions)
+        frontendValidation.visit(tree)
+
+
+        # llvm_code = visitor.get_llvm()
+
+        # with open(base_path + ".ll", "w") as file:
+        #     print(llvm_code, file=file)
+        # print("Generated: " + base_path + ".ll")
+        # os.system(f"llvm-as {base_path}.ll")
+        # print("Generated: " + base_path + ".bc")
+
+        print('OK', file=sys.stderr)
     else:
         raise ValueError("No such compiler")
 

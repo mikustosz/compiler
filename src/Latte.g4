@@ -55,8 +55,8 @@ expr
     | 'true'                              # ETrue
     | 'false'                             # EFalse
     | ID '(' ( expr ( ',' expr )* )? ')'  # EFunCall
-    | STR                           # EStr
-    | '(' expr ')'                  # EParen
+    | STR                                 # EStr
+    | '(' expr ')'                        # EParen
     ;
 
 addOp
