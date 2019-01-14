@@ -244,6 +244,15 @@ class FrontendValidationVisitor(LatteVisitor):
                     raise_frontend_expr_type_error(ctx)
         return self.visitChildren(ctx)
 
+    def visitCond(self, ctx: LatteParser.CondContext):
+        exprValidator = ExprValidateVisitor(self.functions)
+        expr_type = exprValidator.visit(ctx.expr())
+        if expr_type != 'boolean':
+            raise_frontend_expr_type_error(ctx)
+
+    def visitCondElse(self, ctx: LatteParser.CondElseContext):
+        self.visitCond(ctx)
+
 
 def check_reachability(tree, functions):
     reachability = ReturnReachabilityVisitor(functions)
@@ -256,13 +265,13 @@ def check_reachability(tree, functions):
             raise_frontend_error(topDef, f'Return clause is not present or may be unreachable in function {func_ID}')
 
 
-# This visitor tells if there is a reachable return clause in functions
+# This visitor tells if there is a reachable return clause in a function
 class ReturnReachabilityVisitor(LatteVisitor):
     def __init__(self, functions):
         self.functions = functions
 
     def aggregateResult(self, aggregate, nextResult):
-        if aggregate == True or nextResult == True:
+        if aggregate is True or nextResult is True:
             return True
 
     # This code is just for simple true/false expressions
@@ -271,7 +280,7 @@ class ReturnReachabilityVisitor(LatteVisitor):
         if expr_text == 'true':
             return self.visitChildren(ctx)
 
-    def visitCondElse(self, ctx: LatteParser.CondElseContext): # TODO case kiedy jest w if i else na raz
+    def visitCondElse(self, ctx: LatteParser.CondElseContext):
         expr_text = ctx.expr().getText()
         if_result = self.visit(ctx.stmt(0))
         else_result = self.visit(ctx.stmt(1))

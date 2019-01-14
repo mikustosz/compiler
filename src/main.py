@@ -2,8 +2,10 @@ import os, sys
 from antlr4 import *
 from gen.LatteLexer import LatteLexer
 from gen.LatteParser import LatteParser
-from src.Visitors import FunctionReaderVisitor, FrontendValidationVisitor, ReturnReachabilityVisitor, check_reachability
+from src.FrontendVisitors import FunctionReaderVisitor, FrontendValidationVisitor, check_reachability
+from src.LLVMVisitor import LLVMVisitor
 from src.CustomErrorListener import CustomErrorListener
+from src.constants import *
 
 
 
@@ -37,14 +39,18 @@ def main(argv, compiler):
 
         check_reachability(tree, functions)
 
+        # Generating backend code
+        llvmVisitor = LLVMVisitor(functions)
+        llvmVisitor.visit(tree)
 
-        # llvm_code = visitor.get_llvm()
+        llvm_code = llvmVisitor.get_llvm()
+        # print(llvm_code)
 
-        # with open(base_path + ".ll", "w") as file:
-        #     print(llvm_code, file=file)
-        # print("Generated: " + base_path + ".ll")
-        # os.system(f"llvm-as {base_path}.ll")
-        # print("Generated: " + base_path + ".bc")
+        with open(base_path + ".ll", "w") as file:
+            print(llvm_code, file=file)
+        print("Generated: " + base_path + ".ll")
+        os.system(f"llvm-as {base_path}.ll")
+        print("Generated: " + base_path + ".bc")
 
         print('OK', file=sys.stderr)
     else:
