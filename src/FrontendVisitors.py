@@ -77,8 +77,9 @@ class FunctionReaderVisitor(LatteVisitor):
         # Now iterate over other variables
         for item in ctx.item():
             var_ID = item.ID().getText()
-            if var_ID in self.functions[func_ID].vars:
-                raise_frontend_error(ctx, f'Variable {var_ID} is declared second time')
+            # TODO check double declaration in the same scope
+            # if var_ID in self.functions[func_ID].vars:
+            #     raise_frontend_error(ctx, f'Variable {var_ID} is declared second time')
             if var_type == 'void':
                 raise_frontend_error(ctx, f'Void is not proper type for a variable')
             self.functions[func_ID].vars[var_ID] = Var(var_type, var_ID)
