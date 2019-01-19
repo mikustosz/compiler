@@ -47,12 +47,8 @@ OK Var type shouldn't be void
 OK if a function is declared as a type it must always return this type
 OK if a function returnes void it musn't return anything
 OK number of arguments in function must always be as declared
- * return function must be reachable
- * any function with type other than void must have at least one return function with correct type
+OK return function must be reachable
+OK any function with type other than void must have at least one return function with correct type
 OK return must be of the same type
 OK expressions: you cannot mix types! 
 OK you cannot pass wrong types to functions
-
-## TODO
- - variables in blocks
- - return reachability

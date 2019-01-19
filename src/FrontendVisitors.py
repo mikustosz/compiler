@@ -17,7 +17,7 @@ class Func:
     type: str
     ID: str
     args: List[Var]
-    vars: Dict[str, Var]
+    vars: List[Dict[str, Var]]
 
 
 def find_function_name(ctx):
@@ -28,12 +28,11 @@ def find_function_name(ctx):
 
 
 def get_func(type, ID, args):
-    return Func(type=type, ID=ID, args=args, vars={arg.ID: arg for arg in args})
+    return Func(type=type, ID=ID, args=args, vars=[{arg.ID: arg for arg in args}])
 
 
 class FunctionReaderVisitor(LatteVisitor):
     def __init__(self):
-        # predefined functions TODO zaimplementować
         self.functions = {
             'printInt': get_func('void', 'printInt', [Var('int', 'x')]),
             'printString': get_func('void', 'printString', [Var('string', 'x')]),
@@ -41,9 +40,11 @@ class FunctionReaderVisitor(LatteVisitor):
             'readInt': get_func('int', 'readInt', []),
             'readString': get_func('string', 'readString', []),
         }
+        self.block = 0
 
     # Read function declarations
     def visitTopDef(self, ctx: LatteParser.TopDefContext):
+        self.block = 0
         func_ID = ctx.ID().getText()
         func_type = ctx.type_().getText()
         args = []
@@ -52,12 +53,12 @@ class FunctionReaderVisitor(LatteVisitor):
         while ctx.arg() and i < len(ctx.arg().children):
             arg_type = ctx.arg().getChild(i).getText()
             if arg_type == 'void':
-                raise_frontend_error(ctx, 'Void is not a good type for a variable')
+                raise_frontend_error(ctx, 'Void is not a possible type for a variable')
             arg_ID = ctx.arg().getChild(i + 1).getText()
             # Check if an argument of the same name alredy exists in this function:
             for j in range(len(args)):
                 if arg_ID == args[j].ID:
-                    raise_frontend_error(ctx, f'Function {func_ID} has two arguments of the same name: {arg_ID}')
+                    raise_frontend_error(ctx, f'Function {func_ID} has two arguments with the same name: {arg_ID}')
             args.append(Var(type=arg_type, ID=arg_ID))
             i += 3  # +3 because the third child is a comma (',')
 
@@ -131,7 +132,18 @@ class ExprValidateVisitor(LatteVisitor):
         raise_frontend_expr_type_error(ctx)
 
     def visitERelOp(self, ctx: LatteParser.ERelOpContext):
-        return self._both_should_have_type('boolean', ctx)
+        type1 = self.visit(ctx.expr(0))
+        type2 = self.visit(ctx.expr(1))
+        op = ctx.relOp().getText()
+
+        if op in ['<', '<=', '>', '>=']:
+            if type1 == type2 and type1 == 'int':
+                return 'boolean'
+            raise_frontend_expr_type_error(ctx)
+        if op in ['==', '!=']:
+            if type1 == type2:
+                return 'boolean'
+        raise_frontend_expr_type_error(ctx)
 
     def visitEAnd(self, ctx: LatteParser.EAndContext):
         return self._both_should_have_type('boolean', ctx)

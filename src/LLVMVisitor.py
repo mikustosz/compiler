@@ -1,5 +1,6 @@
 from gen.LatteParser import LatteParser
 from gen.LatteVisitor import LatteVisitor
+from src.FrontendVisitors import ExprValidateVisitor
 from src.constants import *
 import sys
 
@@ -8,13 +9,8 @@ import sys
 t_d = {  # type dictionary
     'void': 'void',
     'int': 'i32',
-    'boolean': 'i32',
+    'boolean': 'i1',
     'string': 'i8*',
-}
-default_val_d = {
-    'int': 0,
-    'boolean': 0,
-    'string': '',
 }
 
 
@@ -31,9 +27,10 @@ class LLVMVisitor(LatteVisitor):
         self.label = 1
         self.ins = []  # instructions
         self.stack = []  # TODO czy potrzebne?
-        self.env = []  # env is List[Dict[ID str, value]], each list element is one block
+        self.env = []  # env is List[Dict[ID str, (register, type)]], each list element is one block
         self.strings = []  # global constant string table
         self.string_id = 1
+        self.t = ExprValidateVisitor(functions)  # For type checking
 
     def get_id(self):
         self.id += 1
@@ -66,14 +63,19 @@ class LLVMVisitor(LatteVisitor):
 
         arg_types = ', '.join([t_d[var.type] for var in func.args])
         self.ins.append(f'define {t_d[func.type]} @{func_ID}({arg_types}) {{')
+        # self.ins.append(f'L{self.get_label()}:')
         for idx, arg in enumerate(func.args):
             i = self.get_id()
-            self.env[0][arg.ID] = i
+            self.env[0][arg.ID] = (i, arg.type)
             self.ins.append(f'%{i} = alloca {t_d[arg.type]}')
             self.ins.append(f'store i32 %{idx}, i32* %{i}')
 
         self.visitChildren(ctx)
 
+        if func.type == 'void':
+            self.ins.append('ret void')
+        else:
+            self.ins.append(f'ret {t_d[func.type]} 0')
         self.ins.append('}')
 
     # === Statements ===
@@ -96,21 +98,23 @@ class LLVMVisitor(LatteVisitor):
             self.env[-1][var_name] = i  # TODO string
 
             if item.expr() is None:
-                self.ins.append(f'store i32 0, i32* %{i}')
+                self.ins.append(f'store {t_d[var_type]} 0, {t_d[var_type]}* %{i}')
             else:
-                r_expr = self.visit(item.expr())
-                self.ins.append(f'store i32 %{r_expr}, i32* %{i}')
+                r_expr, _ = self.visit(item.expr())
+                self.ins.append(f'store {t_d[var_type]} %{r_expr}, {t_d[var_type]}* %{i}')
 
     def visitAss(self, ctx: LatteParser.AssContext):
         var_ID = ctx.ID().getText()
-        r_expr = self.visit(ctx.expr())
-        r_var = self.get_variable(ctx, var_ID)
-        self.ins.append(f'store i32 %{r_expr}, i32* %{r_var}')
+        r_expr, t_expr = self.visit(ctx.expr())
+        r_var, var_t = self.get_variable(ctx, var_ID)
+        assert var_t == t_expr, f'Wrong value assigned to {var_ID}'
+        self.ins.append(f'store {t_d[t_expr]} %{r_expr}, {t_d[t_expr]}* %{r_var}')
 
     def visitIncr(self, ctx: LatteParser.IncrContext, op='add nsw'):
         var_ID = ctx.ID().getText()
-        r_var = self.get_variable(ctx, var_ID)
+        r_var, var_t = self.get_variable(ctx, var_ID)
         i = self.get_id()
+        assert var_t == 'int'
         self.ins.append(f'%{i} = load i32, i32* %{r_var}')
         i = self.get_id()
         self.ins.append(f'%{i} = {op} i32 %{i - 1}, 1')
@@ -121,20 +125,57 @@ class LLVMVisitor(LatteVisitor):
         self.visitIncr(ctx, op='sub nsw')
 
     def visitRet(self, ctx: LatteParser.RetContext):
-        r = self.visit(ctx.expr())
-        self.ins.append(f'ret i32 %{r}')
+        r, t = self.visit(ctx.expr())
+        self.get_id()
+        self.ins.append(f'ret {t_d[t]} %{r}')
 
     def visitVRet(self, ctx: LatteParser.VRetContext):
         self.ins.append('ret void')
+        self.get_id()
 
     def visitCond(self, ctx: LatteParser.CondContext):
-        self.visitChildren(ctx)
+        self.visitCondElse(ctx)
 
     def visitCondElse(self, ctx: LatteParser.CondElseContext):
-        self.visitChildren(ctx)
+        l_true = self.get_label()
+        l_false = self.get_label()
+        l_next = self.get_label()
+        r, t = self.visit(ctx.expr())
+        # self.get_id()  # TODO is it necessary with br?
+        self.ins.append(f'br {t_d[t]} %{r}, label %L{l_true}, label %L{l_false}')
+        self.ins.append(f'L{l_true}:')
+        if isinstance(ctx, LatteParser.CondElseContext):
+            self.visit(ctx.stmt(0))
+        else:
+            self.visit(ctx.stmt())
+
+        # self.get_id()  # TODO is it necessary with br?
+        self.ins.append(f'br label %L{l_next}')
+
+        self.ins.append(f'L{l_false}:')
+        if isinstance(ctx, LatteParser.CondElseContext):
+            self.visit(ctx.stmt(1))
+
+        # self.get_id()  # TODO is it necessary with br?
+        self.ins.append(f'br label %L{l_next}')  # TODO are these two necessary?
+
+        self.ins.append(f'L{l_next}:')
 
     def visitWhile(self, ctx: LatteParser.WhileContext):
-        self.visitChildren(ctx)
+        l_expr = self.get_label()
+        l_true = self.get_label()
+        l_false = self.get_label()
+
+        self.ins.append(f'br label %L{l_expr}')
+        self.ins.append(f'L{l_expr}:')
+        r, t = self.visit(ctx.expr())
+        self.ins.append(f'br {t_d[t]} %{r}, label %L{l_true}, label %L{l_false}')
+
+        self.ins.append(f'L{l_true}:')
+        self.visit(ctx.stmt())
+        self.ins.append(f'br label %L{l_expr}')
+
+        self.ins.append(f'L{l_false}:')
 
     # === Expressions ===
     def _visit_both(self, ctx, op):
@@ -153,28 +194,24 @@ class LLVMVisitor(LatteVisitor):
             '&&': 'and',
             '||': 'or',
         }
-        r1 = self.visit(ctx.expr(0))
-        r2 = self.visit(ctx.expr(1))
+        r1, t1 = self.visit(ctx.expr(0))
+        r2, t2 = self.visit(ctx.expr(1))
         i = self.get_id()
-        self.ins.append(f'%{i} = {op_d[op]} i32 %{r1}, %{r2}')
-        return i
+        self.ins.append(f'%{i} = {op_d[op]} {t_d[t1]} %{r1}, %{r2}')
+        return i, self.t.visit(ctx)
 
-    # def visitSExp(self, ctx):
-    #     r = self.visit(ctx.expr())
-    #     i = self.get_id()
-    #     self.ins.append(f"%{i} = call i32 (i8*, ...)@printf(i8* getelementptr inbounds"
-    #                     f"([4 x i8], [4 x i8]* @.str, i32 0, i32 0), i32 %{r})")
-
+    def visitSExp(self, ctx: LatteParser.SExpContext):
+        self.visit(ctx.expr())  # TODO tylko func call warto odwiedzać
 
     # === Expressions ===
     def visitEUnOp(self, ctx: LatteParser.EUnOpContext):
-        r = self.visit(ctx.expr())
+        r, t = self.visit(ctx.expr())
         i = self.get_id()
-        op_d = {'-': f'sub nsw i32 0, %{r}',
-                '!': f'sub nsw i32 1, %{r}'}
+        op_d = {'-': f'sub nsw {t_d[t]} 0, %{r}',
+                '!': f'sub nsw {t_d[t]} 1, %{r}'}
         op = ctx.getChild(0).getText()
         self.ins.append(f'%{i} = {op_d[op]}')
-        return i
+        return i, self.t.visit(ctx)
 
     def visitEMulOp(self, ctx: LatteParser.EMulOpContext):
         return self._visit_both(ctx, ctx.mulOp().getText())
@@ -191,33 +228,33 @@ class LLVMVisitor(LatteVisitor):
     def visitEOr(self, ctx: LatteParser.EOrContext):
         return self._visit_both(ctx, '||')
 
-    def visitEId(self, ctx: LatteParser.EIdContext):
+    def visitEId(self, ctx: LatteParser.EIdContext):  # TODO This won't work in blocks, you need to remember type from frontend
         i = self.get_id()
-        r_var = self.get_variable(ctx, ctx.ID().getText())
-        self.ins.append(f'%{i} = load i32, i32* %{r_var}')
-        return i
+        r_var, var_t = self.get_variable(ctx, ctx.ID().getText())
+        self.ins.append(f'%{i} = load {t_d[var_t]}, {t_d[var_t]}* %{r_var}')
+        return i, self.t.visit(ctx)
 
     def visitEInt(self, ctx: LatteParser.EIntContext):
         val = ctx.INT().getText()
         i = self.get_id()
         self.ins.append(f'%{i} = add i32 {val}, 0')
-        return i
+        return i, self.t.visit(ctx)
 
     def visitETrue(self, ctx: LatteParser.ETrueContext):
         i = self.get_id()
-        self.ins.append(f'%{i} = add i32 1, 0')
-        return i
+        self.ins.append(f'%{i} = add i1 1, 0')
+        return i, self.t.visit(ctx)
 
     def visitEFalse(self, ctx: LatteParser.EFalseContext):
         i = self.get_id()
-        self.ins.append(f'%{i} = add i32 0, 0')
-        return i
+        self.ins.append(f'%{i} = add i1 0, 0')
+        return i, self.t.visit(ctx)
 
     def visitEFunCall(self, ctx: LatteParser.EFunCallContext):
         func_ID = ctx.ID().getText()
         func = self.functions[func_ID]
 
-        rs = [self.visit(expr) for expr in ctx.expr()]  # get list of expression registers
+        rs = [self.visit(expr)[0] for expr in ctx.expr()]  # get list of expression registers
         arg_str = ', '.join([f'{t_d[var.type]} %{r}' for r, var in zip(rs, func.args)])
         i = self.id - 1
         instr = ''
@@ -226,22 +263,13 @@ class LLVMVisitor(LatteVisitor):
             instr = f'%{i} = '
         instr += f'call {t_d[func.type]} @{func_ID}({arg_str})'
         self.ins.append(instr)
-        return i
+        return i, self.t.visit(ctx)
 
     def visitEStr(self, ctx: LatteParser.EStrContext):
-        return self.save_string(ctx.STR().getText())  # TODO it's returning other int than usual
+        return self.save_string(ctx.STR().getText()), self.t.visit(ctx)  # TODO it's returning other int than usual
 
     def visitEParen(self, ctx: LatteParser.EParenContext):
         return self.visit(ctx.expr())
 
-    # TODO deprec
-    def visitExpVar(self, ctx):
-        name = ctx.ID().getText()
-        self.id += 1
-        self.stack.append(self.id)
-        self.ins.append(f"%{self.id} = load i32, i32* %{name}")
-
     def get_llvm(self):
         return HEADER + '\n'.join(self.ins) + FOOTER
-        # decs = [f"%{v} = alloca i32" for v in self.memory]
-        # return self._get_header() + "\n".join(decs + self.ins) + self._get_footer()
