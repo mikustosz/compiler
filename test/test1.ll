@@ -83,10 +83,10 @@ declare noalias i8* @malloc(i64)
 
 declare void @free(i8* nocapture)
 
-@s0 = internal constant [2 x i8] c"=\00"
-@s1 = internal constant [9 x i8] c"hello */\00"
-@s2 = internal constant [9 x i8] c"/* world\00"
-@s3 = internal constant [1 x i8] c"\00"
+@s0 = internal constant [1 x i8] c"\00"
+@s1 = internal constant [2 x i8] c"=\00"
+@s2 = internal constant [9 x i8] c"hello */\00"
+@s3 = internal constant [9 x i8] c"/* world\00"
 
 define i32 @main() {
 %1 = add i32 10, 0
@@ -102,41 +102,41 @@ call void @printInt(i32 %6)
 %8 = call i32 @ifac(i32 %7)
 call void @printInt(i32 %8)
 %9 = alloca i8*
-store i8* 0, i8** %9
-%10 = alloca i32
-%11 = add i32 10, 0
-store i32 %11, i32* %10
-%12 = alloca i32
-%13 = add i32 1, 0
-store i32 %13, i32* %12
+%10 = bitcast [1 x i8]* @s0 to i8*
+%11 = alloca i32
+%12 = add i32 10, 0
+store i32 %12, i32* %11
+%13 = alloca i32
+%14 = add i32 1, 0
+store i32 %14, i32* %13
 br label %L1
 L1:
-%14 = load i32, i32* %10
-%15 = add i32 0, 0
-%16 = icmp sgt i32 %14, %15
-br i1 %16, label %L2, label %L3
+%15 = load i32, i32* %11
+%16 = add i32 0, 0
+%17 = icmp sgt i32 %15, %16
+br i1 %17, label %L2, label %L3
 L2:
-%17 = load i32, i32* %12
-%18 = load i32, i32* %10
-%19 = mul nsw i32 %17, %18
-store i32 %19, i32* %12
-%20 = load i32, i32* %10
-%21 = sub nsw i32 %20, 1
-store i32  %21, i32* %10
+%18 = load i32, i32* %13
+%19 = load i32, i32* %11
+%20 = mul nsw i32 %18, %19
+store i32 %20, i32* %13
+%21 = load i32, i32* %11
+%22 = sub nsw i32 %21, 1
+store i32  %22, i32* %11
 br label %L1
 L3:
-%22 = load i32, i32* %12
-call void @printInt(i32 %22)
-%23 = bitcast [2 x i8]* @s0 to i8*
-%24 = add i32 60, 0
-%25 = call i8* @repStr(i8* %23, i32 %24)
-call void @printString(i8* %25)
-%26 = bitcast [9 x i8]* @s1 to i8*
+%23 = load i32, i32* %13
+call void @printInt(i32 %23)
+%24 = bitcast [2 x i8]* @s1 to i8*
+%25 = add i32 60, 0
+%26 = call i8* @repStr(i8* %24, i32 %25)
 call void @printString(i8* %26)
 %27 = bitcast [9 x i8]* @s2 to i8*
 call void @printString(i8* %27)
-%28 = add i32 0, 0
-ret i32 %28
+%28 = bitcast [9 x i8]* @s3 to i8*
+call void @printString(i8* %28)
+%29 = add i32 0, 0
+ret i32 %29
 ret i32 0
 }
 define i32 @fac(i32) {
@@ -298,11 +298,11 @@ ret i32 0
 }
 define i8* @repStr(i8*, i32) {
 %3 = alloca i8*
-store i32 %0, i32* %3
+store i8* %0, i8** %3
 %4 = alloca i32
 store i32 %1, i32* %4
 %5 = alloca i8*
-%6 = bitcast [1 x i8]* @s3 to i8*
+%6 = bitcast [1 x i8]* @s0 to i8*
 store i8* %6, i8** %5
 %7 = alloca i32
 %8 = add i32 0, 0
@@ -325,5 +325,6 @@ br label %L22
 L24:
 %17 = load i8*, i8** %5
 ret i8* %17
-ret i8* 0
+%19 = bitcast [1 x i8]* @s0 to i8*
+ret i8* %19
 }

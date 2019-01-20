@@ -27,7 +27,7 @@ class LLVMVisitor(LatteVisitor):
         self.label = 1
         self.ins = []  # instructions
         self.env = []  # env is List[Dict[ID str, (register, type)]], each list element is one block
-        self.strings = []  # global constant string table
+        self.strings = ['']  # global constant string table
 
     def get_id(self):
         self.id += 1
@@ -60,12 +60,16 @@ class LLVMVisitor(LatteVisitor):
             i = self.get_id()
             self.env[0][arg.ID] = (i, arg.type)
             self.ins.append(f'%{i} = alloca {t_d[arg.type]}')
-            self.ins.append(f'store i32 %{idx}, i32* %{i}')
+            self.ins.append(f'store {t_d[arg.type]} %{idx}, {t_d[arg.type]}* %{i}')
 
         self.visitChildren(ctx)
 
         if func.type == 'void':
             self.ins.append('ret void')
+        elif func.type == 'string':
+            i = self.get_id()
+            self.ins.append(f'%{i} = bitcast [1 x i8]* @s0 to i8*')
+            self.ins.append(f'ret i8* %{i}')
         else:
             self.ins.append(f'ret {t_d[func.type]} 0')
         self.ins.append('}')
@@ -90,8 +94,8 @@ class LLVMVisitor(LatteVisitor):
 
             if item.expr() is None:
                 if var_type == 'string':
-                    self.ins.append(f'store {t_d[var_type]} 0, {t_d[var_type]}* %{i}')
-                    self.ins.append(f'store {t_d[var_type]} 0, {t_d[var_type]}* %{i}')
+                    i = self.get_id()
+                    self.ins.append(f'%{i} = bitcast [1 x i8]* @s0 to i8*')
                 else:
                     self.ins.append(f'store {t_d[var_type]} 0, {t_d[var_type]}* %{i}')
             else:
@@ -136,7 +140,6 @@ class LLVMVisitor(LatteVisitor):
         l_false = self.get_label()
         l_next = self.get_label()
         r, t = self.visit(ctx.expr())
-        # self.get_id()  # TODO is it necessary with br?
         self.ins.append(f'br {t_d[t]} %{r}, label %L{l_true}, label %L{l_false}')
         self.ins.append(f'L{l_true}:')
         if isinstance(ctx, LatteParser.CondElseContext):
@@ -144,14 +147,12 @@ class LLVMVisitor(LatteVisitor):
         else:
             self.visit(ctx.stmt())
 
-        # self.get_id()  # TODO is it necessary with br?
         self.ins.append(f'br label %L{l_next}')
 
         self.ins.append(f'L{l_false}:')
         if isinstance(ctx, LatteParser.CondElseContext):
             self.visit(ctx.stmt(1))
 
-        # self.get_id()  # TODO is it necessary with br?
         self.ins.append(f'br label %L{l_next}')  # TODO are these two necessary?
 
         self.ins.append(f'L{l_next}:')
