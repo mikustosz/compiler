@@ -37,8 +37,6 @@ def main(argv, compiler):
         frontendValidation = FrontendValidationVisitor(functions)
         frontendValidation.visit(tree)
 
-        print(functions)
-
         check_reachability(tree, functions)
 
         # Generating backend code

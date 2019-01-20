@@ -58,6 +58,23 @@ define  i8* @readString() {
   ret i8* %8 
 }
 
+define i8* @concat(i8*, i8*) {
+  %3 = tail call i64 @strlen(i8* %0)
+  %4 = tail call i64 @strlen(i8* %1)
+  %5 = add i64 %3, 1
+  %6 = add i64 %5, %4
+  %7 = tail call noalias i8* @malloc(i64 %6)
+  %8 = tail call i8* @strcpy(i8* %7, i8* %0)
+  %9 = tail call i8* @strcat(i8* %7, i8* %1)
+  ret i8* %7
+}
+
+declare i64 @strlen(i8*)
+
+declare i8* @strcpy(i8*, i8*)
+
+declare i8* @strcat(i8*, i8*)
+
 declare i8* @strdup(i8*)
 
 declare i64 @getline(i8**, i64*, %struct._IO_FILE*)
@@ -67,5 +84,3 @@ declare noalias i8* @malloc(i64)
 declare void @free(i8* nocapture)
 
 """
-
-FOOTER = ''

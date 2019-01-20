@@ -1,6 +1,6 @@
 from gen.LatteParser import LatteParser
 from gen.LatteVisitor import LatteVisitor
-from src.FrontendVisitors import ExprValidateVisitor
+from src.FrontendVisitors import FrontendValidationVisitor
 from src.constants import *
 import sys
 
@@ -26,11 +26,8 @@ class LLVMVisitor(LatteVisitor):
         self.id = 1
         self.label = 1
         self.ins = []  # instructions
-        self.stack = []  # TODO czy potrzebne?
         self.env = []  # env is List[Dict[ID str, (register, type)]], each list element is one block
         self.strings = []  # global constant string table
-        self.string_id = 1
-        self.t = ExprValidateVisitor(functions)  # For type checking
 
     def get_id(self):
         self.id += 1
@@ -39,11 +36,6 @@ class LLVMVisitor(LatteVisitor):
     def get_label(self):
         self.label += 1
         return self.label - 1
-
-    def save_string(self, s):
-        self.strings.append(s)
-        self.string_id += 1
-        return self.string_id - 1
 
     def get_variable(self, ctx, var_ID: str):
         for block in reversed(self.env):
@@ -90,15 +82,18 @@ class LLVMVisitor(LatteVisitor):
             var_name = item.ID().getText()
             if var_name in self.env[-1]:
                 raise_runtime_error(ctx, f'Variable {var_name} is declared twice in this scope')
-            if var_type == 'string':
-                raise_runtime_error(ctx, 'Jeszcze nie zaimplementowałem tego lol')
 
             i = self.get_id()
             self.ins.append(f'%{i} = alloca {t_d[var_type]}')
-            self.env[-1][var_name] = i  # TODO string
+            self.env[-1][var_name] = i, var_type
+
 
             if item.expr() is None:
-                self.ins.append(f'store {t_d[var_type]} 0, {t_d[var_type]}* %{i}')
+                if var_type == 'string':
+                    self.ins.append(f'store {t_d[var_type]} 0, {t_d[var_type]}* %{i}')
+                    self.ins.append(f'store {t_d[var_type]} 0, {t_d[var_type]}* %{i}')
+                else:
+                    self.ins.append(f'store {t_d[var_type]} 0, {t_d[var_type]}* %{i}')
             else:
                 r_expr, _ = self.visit(item.expr())
                 self.ins.append(f'store {t_d[var_type]} %{r_expr}, {t_d[var_type]}* %{i}')
@@ -178,6 +173,11 @@ class LLVMVisitor(LatteVisitor):
         self.ins.append(f'L{l_false}:')
 
     # === Expressions ===
+    def get_type(self, ctx):
+        v = FrontendValidationVisitor(self.functions)
+        v.env = self.env
+        return v.visit(ctx)
+
     def _visit_both(self, ctx, op):
         op_d = {
             '+': 'add nsw',
@@ -196,9 +196,13 @@ class LLVMVisitor(LatteVisitor):
         }
         r1, t1 = self.visit(ctx.expr(0))
         r2, t2 = self.visit(ctx.expr(1))
+        assert t1 == t2, f'Types mismatch: {t1} {op} {t2}'
         i = self.get_id()
-        self.ins.append(f'%{i} = {op_d[op]} {t_d[t1]} %{r1}, %{r2}')
-        return i, self.t.visit(ctx)
+        if op == '+' and t1 == 'string':
+            self.ins.append(f'%{i} = call i8* @concat(i8* %{r1}, i8* %{r2})')
+        else:
+            self.ins.append(f'%{i} = {op_d[op]} {t_d[t1]} %{r1}, %{r2}')
+        return i, self.get_type(ctx)
 
     def visitSExp(self, ctx: LatteParser.SExpContext):
         self.visit(ctx.expr())  # TODO tylko func call warto odwiedzać
@@ -211,7 +215,7 @@ class LLVMVisitor(LatteVisitor):
                 '!': f'sub nsw {t_d[t]} 1, %{r}'}
         op = ctx.getChild(0).getText()
         self.ins.append(f'%{i} = {op_d[op]}')
-        return i, self.t.visit(ctx)
+        return i, self.get_type(ctx)
 
     def visitEMulOp(self, ctx: LatteParser.EMulOpContext):
         return self._visit_both(ctx, ctx.mulOp().getText())
@@ -228,27 +232,28 @@ class LLVMVisitor(LatteVisitor):
     def visitEOr(self, ctx: LatteParser.EOrContext):
         return self._visit_both(ctx, '||')
 
-    def visitEId(self, ctx: LatteParser.EIdContext):  # TODO This won't work in blocks, you need to remember type from frontend
+    def visitEId(self,
+                 ctx: LatteParser.EIdContext):  # TODO This won't work in blocks, you need to remember type from frontend
         i = self.get_id()
         r_var, var_t = self.get_variable(ctx, ctx.ID().getText())
         self.ins.append(f'%{i} = load {t_d[var_t]}, {t_d[var_t]}* %{r_var}')
-        return i, self.t.visit(ctx)
+        return i, self.get_type(ctx)
 
     def visitEInt(self, ctx: LatteParser.EIntContext):
         val = ctx.INT().getText()
         i = self.get_id()
         self.ins.append(f'%{i} = add i32 {val}, 0')
-        return i, self.t.visit(ctx)
+        return i, self.get_type(ctx)
 
     def visitETrue(self, ctx: LatteParser.ETrueContext):
         i = self.get_id()
         self.ins.append(f'%{i} = add i1 1, 0')
-        return i, self.t.visit(ctx)
+        return i, self.get_type(ctx)
 
     def visitEFalse(self, ctx: LatteParser.EFalseContext):
         i = self.get_id()
         self.ins.append(f'%{i} = add i1 0, 0')
-        return i, self.t.visit(ctx)
+        return i, self.get_type(ctx)
 
     def visitEFunCall(self, ctx: LatteParser.EFunCallContext):
         func_ID = ctx.ID().getText()
@@ -263,13 +268,22 @@ class LLVMVisitor(LatteVisitor):
             instr = f'%{i} = '
         instr += f'call {t_d[func.type]} @{func_ID}({arg_str})'
         self.ins.append(instr)
-        return i, self.t.visit(ctx)
+        return i, self.get_type(ctx)
 
     def visitEStr(self, ctx: LatteParser.EStrContext):
-        return self.save_string(ctx.STR().getText()), self.t.visit(ctx)  # TODO it's returning other int than usual
+        s = ctx.STR().getText()[1:-1]
+        i = self.get_id()
+        s_idx = len(self.strings)
+        if s in self.strings:
+            s_idx = self.strings.index(s)
+        else:
+            self.strings.append(s)
+        self.ins.append(f'%{i} = bitcast [{len(s)+1} x i8]* @s{s_idx} to i8*')
+        return i, self.get_type(ctx)
 
     def visitEParen(self, ctx: LatteParser.EParenContext):
         return self.visit(ctx.expr())
 
     def get_llvm(self):
-        return HEADER + '\n'.join(self.ins) + FOOTER
+        string_decs = [f'@s{i} = internal constant [{len(s)+1} x i8] c"{s}\\00"' for i, s in enumerate(self.strings)]
+        return HEADER + '\n'.join(string_decs) + '\n\n' + '\n'.join(self.ins)

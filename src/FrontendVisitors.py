@@ -17,7 +17,6 @@ class Func:
     type: str
     ID: str
     args: List[Var]
-    vars: List[Dict[str, Var]]
 
 
 def find_function_name(ctx):
@@ -28,7 +27,7 @@ def find_function_name(ctx):
 
 
 def get_func(type, ID, args):
-    return Func(type=type, ID=ID, args=args, vars=[{arg.ID: arg for arg in args}])
+    return Func(type=type, ID=ID, args=args)
 
 
 class FunctionReaderVisitor(LatteVisitor):
@@ -71,19 +70,19 @@ class FunctionReaderVisitor(LatteVisitor):
         return self.visitChildren(ctx)
 
     # Read variable declarations inside function (but don't check expr types)
-    def visitDecl(self, ctx: LatteParser.DeclContext):
-        func_ID = find_function_name(ctx)
-        var_type = ctx.type_().getText()
-
-        # Now iterate over other variables
-        for item in ctx.item():
-            var_ID = item.ID().getText()
-            # TODO check double declaration in the same scope
-            # if var_ID in self.functions[func_ID].vars:
-            #     raise_frontend_error(ctx, f'Variable {var_ID} is declared second time')
-            if var_type == 'void':
-                raise_frontend_error(ctx, f'Void is not proper type for a variable')
-            self.functions[func_ID].vars[var_ID] = Var(var_type, var_ID)
+    # def visitDecl(self, ctx: LatteParser.DeclContext):
+    #     func_ID = find_function_name(ctx)
+    #     var_type = ctx.type_().getText()
+    #
+    #     # Now iterate over other variables
+    #     for item in ctx.item():
+    #         var_ID = item.ID().getText()
+    #         # TODO check double declaration in the same scope
+    #         # if var_ID in self.functions[func_ID].vars:
+    #         #     raise_frontend_error(ctx, f'Variable {var_ID} is declared second time')
+    #         if var_type == 'void':
+    #             raise_frontend_error(ctx, f'Void is not proper type for a variable')
+    #         self.functions[func_ID].vars[var_ID] = Var(var_type, var_ID)
 
     def get_functions(self):
         return self.functions
@@ -100,10 +99,102 @@ def raise_frontend_expr_type_error(ctx):
     raise_frontend_error(ctx, 'Expression type is invalid')
 
 
-class ExprValidateVisitor(LatteVisitor):
+class FrontendValidationVisitor(LatteVisitor):
     def __init__(self, functions):
         self.functions = functions
+        self.env = [{}]  # List[Dict[var_ID: (register, type)]]
 
+    def get_variable(self, var_ID: str):
+        for block in reversed(self.env):
+            if var_ID in block:
+                return block[var_ID]
+
+    # Most general rules checked here
+    def visitProgram(self, ctx: LatteParser.ProgramContext):
+        if 'main' not in self.functions:
+            raise_frontend_error(ctx, 'You should declare the "main" function')
+        self.visitChildren(ctx)
+
+    def visitTopDef(self, ctx: LatteParser.TopDefContext):
+        func_ID = ctx.ID().getText()
+        self.env = [{arg.ID: (0, arg.type) for arg in self.functions[func_ID].args}]
+        self.visitChildren(ctx)
+
+    def visitBlockStmt(self, ctx: LatteParser.BlockStmtContext):
+        self.env.append({})
+        self.visitChildren(ctx)
+        self.env.pop()
+
+    def visitEFunCall(self, ctx: LatteParser.EFunCallContext):
+        func_ID = ctx.ID().getText()
+
+        # Validate if used function is declared
+        if func_ID not in self.functions:
+            raise_frontend_error(ctx, 'Function ' + func_ID + ' was not declared')
+
+        # Validate if number of arguments is right
+        args = self.functions[func_ID].args
+        exprs = ctx.expr()
+        if len(args) != len(exprs):
+            raise_frontend_error(ctx, 'Function ' + func_ID + ' has wrong number of arguments')
+
+        # Validate if exps are the same type as declared args
+        for i, expr in enumerate(exprs):
+            type_ = self.visit(expr)
+            if self.functions[func_ID].args[i].type != type_:
+                raise_frontend_error(ctx, f'Function {func_ID} is called with wrong argument type: argument nr {i + 1}')
+
+        self.visitChildren(ctx)
+
+    def visitAss(self, ctx: LatteParser.AssContext):
+        # Check if the type of assigned expression is the same as variable type
+        var_ID = ctx.ID().getText()
+        x = self.get_variable(var_ID)
+        if x is None:
+            raise_frontend_error(ctx, f'Variable {var_ID} was not declared')
+        expr_type = self.visit(ctx.expr())
+        if expr_type != x[1]:
+            raise_frontend_expr_type_error(ctx)
+        return self.visitChildren(ctx)
+
+    def visitRet(self, ctx: LatteParser.RetContext):
+        # expression in return should always bear type of declared function type
+        func_ID = find_function_name(ctx)
+        func_type = self.functions[func_ID].type
+        expr_type = self.visit(ctx.expr())
+
+        if expr_type != func_type:
+            raise_frontend_error(ctx, f'Function {func_ID} should return {func_type}, not {expr_type}')
+        return self.visitChildren(ctx)
+
+    def visitVRet(self, ctx: LatteParser.VRetContext):
+        func_ID = find_function_name(ctx)
+        func_type = self.functions[func_ID].type
+        if func_type != 'void':
+            raise_frontend_error(ctx, f'Function {func_ID} should return {func_type}, not void')
+
+    # check if assigned expression is of correct type
+    def visitDecl(self, ctx: LatteParser.DeclContext):
+        var_type = ctx.type_().getText()
+        for item in ctx.item():
+            var_ID = item.ID().getText()
+            if var_ID in self.env[-1]:
+                raise_frontend_error(ctx, f'Variable {var_ID} is declared second time in this scope')
+            self.env[-1][var_ID] = (0, var_type)
+            if item.expr() is not None:  # this happens only when item is of type "ID '=' expr"
+                expr_type = self.visit(item)
+                if expr_type != var_type:
+                    raise_frontend_expr_type_error(ctx)
+
+    def visitCond(self, ctx: LatteParser.CondContext):
+        expr_type = self.visit(ctx.expr())
+        if expr_type != 'boolean':
+            raise_frontend_expr_type_error(ctx)
+
+    def visitCondElse(self, ctx: LatteParser.CondElseContext):
+        self.visitCond(ctx)
+
+    ########### EXPRESSIONS ##############
     # This is for two children exprs, both must be the same given type
     def _both_should_have_type(self, type_, ctx):
         type1 = self.visit(ctx.expr(0))
@@ -152,11 +243,11 @@ class ExprValidateVisitor(LatteVisitor):
         return self._both_should_have_type('boolean', ctx)
 
     def visitEId(self, ctx: LatteParser.EIdContext):
-        func_ID = find_function_name(ctx)
         var_ID = ctx.ID().getText()
-        if var_ID not in self.functions[func_ID].vars:
-            raise_frontend_error(ctx, f'Variable {var_ID} was not declared')
-        return self.functions[func_ID].vars[var_ID].type
+        x = self.get_variable(var_ID)
+        if x is None:
+            raise_frontend_error(ctx, f'Variable {var_ID} was not declared (EId)')
+        return x[1]
 
     def visitEInt(self, ctx: LatteParser.EIntContext):
         return 'int'
@@ -180,92 +271,7 @@ class ExprValidateVisitor(LatteVisitor):
         return self.visit(ctx.children[1])
 
 
-class FrontendValidationVisitor(LatteVisitor):
-    def __init__(self, functions):
-        self.functions = functions
-
-    # Most general rules checked here
-    def visitProgram(self, ctx: LatteParser.ProgramContext):
-        if 'main' not in self.functions:
-            raise_frontend_error(ctx, 'You should declare the "main" function')
-        return self.visitChildren(ctx)
-
-    def visitEFunCall(self, ctx: LatteParser.EFunCallContext):
-        func_ID = ctx.ID().getText()
-
-        # Validate if used function is declared
-        if func_ID not in self.functions:
-            raise_frontend_error(ctx, 'Function ' + func_ID + ' was not declared')
-
-        # Validate if number of arguments is right
-        args = self.functions[func_ID].args
-        exprs = ctx.expr()
-        if len(args) != len(exprs):
-            raise_frontend_error(ctx, 'Function ' + func_ID + ' has wrong number of arguments')
-
-        # Validate if exps are the same type as declared args
-        exprValidator = ExprValidateVisitor(self.functions)
-        for i, expr in enumerate(exprs):
-            type_ = exprValidator.visit(expr)
-            if self.functions[func_ID].args[i].type != type_:
-                raise_frontend_error(ctx, f'Function {func_ID} is called with wrong argument type: argument nr {i + 1}')
-
-        return self.visitChildren(ctx)
-
-    def visitAss(self, ctx: LatteParser.AssContext):
-
-        # Check if the type of assigned expression is the same as variable type
-        func_ID = find_function_name(ctx)
-        var_ID = ctx.ID().getText()
-        if var_ID not in self.functions[func_ID].vars:
-            raise_frontend_error(ctx, f'Variable {var_ID} was not declared')
-        var_type = self.functions[func_ID].vars[var_ID].type
-        exprValidator = ExprValidateVisitor(self.functions)
-        expr_type = exprValidator.visit(ctx.expr())
-
-        if expr_type != var_type:
-            raise_frontend_expr_type_error(ctx)
-        return self.visitChildren(ctx)
-
-    def visitRet(self, ctx: LatteParser.RetContext):
-        # expression in return should always bear type of declared function type
-        func_ID = find_function_name(ctx)
-        func_type = self.functions[func_ID].type
-        exprValidator = ExprValidateVisitor(self.functions)
-
-        expr_type = exprValidator.visit(ctx.expr())
-
-        if expr_type != func_type:
-            raise_frontend_error(ctx, f'Function {func_ID} should return {func_type}, not {expr_type}')
-        return self.visitChildren(ctx)
-
-    def visitVRet(self, ctx: LatteParser.VRetContext):
-        func_ID = find_function_name(ctx)
-        func_type = self.functions[func_ID].type
-        if func_type != 'void':
-            raise_frontend_error(ctx, f'Function {func_ID} should return {func_type}, not void')
-        return self.visitChildren(ctx)
-
-    # check if assigned expression is of correct type
-    def visitDecl(self, ctx: LatteParser.DeclContext):
-        var_type = ctx.type_().getText()
-        for item in ctx.item():
-            if item.expr() is not None:  # this happens only when item is of type "ID '=' expr"
-                exprValidator = ExprValidateVisitor(self.functions)
-                expr_type = exprValidator.visit(item)
-                if expr_type != var_type:
-                    raise_frontend_expr_type_error(ctx)
-        return self.visitChildren(ctx)
-
-    def visitCond(self, ctx: LatteParser.CondContext):
-        exprValidator = ExprValidateVisitor(self.functions)
-        expr_type = exprValidator.visit(ctx.expr())
-        if expr_type != 'boolean':
-            raise_frontend_expr_type_error(ctx)
-
-    def visitCondElse(self, ctx: LatteParser.CondElseContext):
-        self.visitCond(ctx)
-
+########## REACHABILITY ############
 
 def check_reachability(tree, functions):
     reachability = ReturnReachabilityVisitor(functions)
