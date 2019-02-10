@@ -44,7 +44,7 @@ define i32 @readInt() {
 
 declare i32 @scanf(i8*, ...)
 
-define  i8* @readString() {
+define i8* @readString() #0 {
   %1 = alloca i8*, align 8
   %2 = alloca i32, align 4
   %3 = alloca i64, align 8
@@ -53,9 +53,23 @@ define  i8* @readString() {
   %5 = call i64 @getline(i8** %1, i64* %3, %struct._IO_FILE* %4)
   %6 = trunc i64 %5 to i32
   store i32 %6, i32* %2, align 4
-  %7 = load i8*, i8** %1, align 8
-  %8 = call noalias i8* @strdup(i8* %7) #5
-  ret i8* %8 
+  %7 = load i32, i32* %2, align 4
+  %8 = icmp sgt i32 %7, 0
+  br i1 %8, label %9, label %15
+
+; <label>:9:                                      ; preds = %0
+  %10 = load i8*, i8** %1, align 8
+  %11 = load i32, i32* %2, align 4
+  %12 = sub nsw i32 %11, 1
+  %13 = sext i32 %12 to i64
+  %14 = getelementptr inbounds i8, i8* %10, i64 %13
+  store i8 0, i8* %14, align 1
+  br label %15
+
+; <label>:15:                                     ; preds = %9, %0
+  %16 = load i8*, i8** %1, align 8
+  %17 = call noalias i8* @strdup(i8* %16) #5
+  ret i8* %17
 }
 
 define i8* @concat(i8*, i8*) {

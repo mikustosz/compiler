@@ -16,7 +16,8 @@ t_d = {  # type dictionary
 
 def raise_runtime_error(ctx, msg):
     print(f'ERROR\nRuntime error on line {ctx.start.line}: {msg}', file=sys.stderr)
-    sys.exit(1)
+    raise Exception
+    # sys.exit(1)
 
 
 class LLVMVisitor(LatteVisitor):

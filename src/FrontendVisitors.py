@@ -92,7 +92,8 @@ class FunctionReaderVisitor(LatteVisitor):
 
 def raise_frontend_error(ctx, msg):
     print(f'ERROR\nFrontend error on line {ctx.start.line}: {msg}', file=sys.stderr)
-    sys.exit(1)
+    raise Exception
+    # sys.exit(1)
 
 
 def raise_frontend_expr_type_error(ctx):
@@ -144,7 +145,7 @@ class FrontendValidationVisitor(LatteVisitor):
             if self.functions[func_ID].args[i].type != type_:
                 raise_frontend_error(ctx, f'Function {func_ID} is called with wrong argument type: argument nr {i + 1}')
 
-        self.visitChildren(ctx)
+        return self.functions[func_ID].type
 
     def visitAss(self, ctx: LatteParser.AssContext):
         # Check if the type of assigned expression is the same as variable type
@@ -190,6 +191,7 @@ class FrontendValidationVisitor(LatteVisitor):
         expr_type = self.visit(ctx.expr())
         if expr_type != 'boolean':
             raise_frontend_expr_type_error(ctx)
+        self.visitChildren(ctx)
 
     def visitCondElse(self, ctx: LatteParser.CondElseContext):
         self.visitCond(ctx)
@@ -257,12 +259,6 @@ class FrontendValidationVisitor(LatteVisitor):
 
     def visitEFalse(self, ctx: LatteParser.EFalseContext):
         return 'boolean'
-
-    def visitEFunCall(self, ctx: LatteParser.EFunCallContext):
-        func_ID = ctx.ID().getText()
-        if func_ID not in self.functions:
-            raise_frontend_error(ctx, f'Function {func_ID} was not declared')
-        return self.functions[ctx.ID().getText()].type
 
     def visitEStr(self, ctx: LatteParser.EStrContext):
         return 'string'

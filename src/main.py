@@ -21,24 +21,28 @@ def main(argv, compiler):
     lexer = LatteLexer(input_stream)
     token_stream = CommonTokenStream(lexer)
     parser = LatteParser(token_stream)
-    # lexer._listeners = [CustomErrorListener()]  # Change default behavior of lexer/parser errors
-    # parser._listeners = [CustomErrorListener()]
-    tree = parser.program()
+    lexer._listeners = [CustomErrorListener()]  # Change default behavior of lexer/parser errors
+    parser._listeners = [CustomErrorListener()]
+    try: tree = parser.program()
+    except: return
     # print(tree.toStringTree(recog=parser))  # Debug
 
     if compiler == "llvm":
         functionReader = FunctionReaderVisitor()
-        functionReader.visit(tree)
+        try: functionReader.visit(tree)
+        except: return
         functions = functionReader.get_functions()
 
         frontendValidation = FrontendValidationVisitor(functions)
-        frontendValidation.visit(tree)
+        try: frontendValidation.visit(tree)
+        except: return
 
-        check_reachability(tree, functions)
-
+        try: check_reachability(tree, functions)
+        except: return
         # Generating backend code
         llvmVisitor = LLVMVisitor(functions)
-        llvmVisitor.visit(tree)
+        try: llvmVisitor.visit(tree)
+        except: return
 
         llvm_code = llvmVisitor.get_llvm()
 
