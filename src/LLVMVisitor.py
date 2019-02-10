@@ -29,6 +29,8 @@ class LLVMVisitor(LatteVisitor):
         self.env = []  # env is List[Dict[ID str, (register, type)]], each list element is one block
         self.strings = ['']  # global constant string table
 
+        self.l_from = 0
+
     def get_id(self):
         self.id += 1
         return self.id - 1
@@ -89,18 +91,17 @@ class LLVMVisitor(LatteVisitor):
 
             i = self.get_id()
             self.ins.append(f'%{i} = alloca {t_d[var_type]}')
-            self.env[-1][var_name] = i, var_type
-
 
             if item.expr() is None:
                 if var_type == 'string':
-                    i = self.get_id()
-                    self.ins.append(f'%{i} = bitcast [1 x i8]* @s0 to i8*')
+                    self.ins.append(f'%{self.get_id()} = bitcast [1 x i8]* @s0 to i8*')
                 else:
                     self.ins.append(f'store {t_d[var_type]} 0, {t_d[var_type]}* %{i}')
             else:
                 r_expr, _ = self.visit(item.expr())
                 self.ins.append(f'store {t_d[var_type]} %{r_expr}, {t_d[var_type]}* %{i}')
+
+            self.env[-1][var_name] = i, var_type
 
     def visitAss(self, ctx: LatteParser.AssContext):
         var_ID = ctx.ID().getText()
@@ -192,7 +193,7 @@ class LLVMVisitor(LatteVisitor):
             '>=': 'icmp sge',
             '==': 'icmp eq',
             '!=': 'icmp ne',
-            '&&': 'and',
+            '&&': 'and',  # TODO wywal logiczne
             '||': 'or',
         }
         r1, t1 = self.visit(ctx.expr(0))
@@ -228,13 +229,62 @@ class LLVMVisitor(LatteVisitor):
         return self._visit_both(ctx, ctx.relOp().getText())
 
     def visitEAnd(self, ctx: LatteParser.EAndContext):
-        return self._visit_both(ctx, '&&')
+        l_true, l_false, l_next = self.get_label(), self.get_label(), self.get_label()
+
+        r1, t1 = self.visit(ctx.expr(0))
+        self.ins.append(f'br i1 %{r1}, label %L{l_true}, label %L{l_false}')
+
+        self.ins.append(f'L{l_true}:')
+        self.l_from = l_true
+        r2, t2 = self.visit(ctx.expr(1))
+        l_from_true = self.l_from
+        i_true = self.get_id()
+        self.ins.append(f'%{i_true} = and i1 %{r1}, %{r2}')
+        self.ins.append(f'br label %L{l_next}')
+
+        self.ins.append(f'L{l_false}:')
+        i_false = self.get_id()
+        self.ins.append(f'%{i_false} = add i1 0, 0')
+        self.ins.append(f'br label %L{l_next}')
+
+        self.ins.append(f'L{l_next}:')
+        i = self.get_id()
+
+        self.ins.append(f'%{i} = phi i1 [%{i_true}, %L{l_from_true}], [%{i_false}, %L{l_false}]')  # TODO l_true zmien
+
+        self.l_from = l_next
+
+        return i, self.get_type(ctx)
 
     def visitEOr(self, ctx: LatteParser.EOrContext):
-        return self._visit_both(ctx, '||')
+        l_true, l_false, l_next = self.get_label(), self.get_label(), self.get_label()
 
-    def visitEId(self,
-                 ctx: LatteParser.EIdContext):  # TODO This won't work in blocks, you need to remember type from frontend
+        r1, t1 = self.visit(ctx.expr(0))
+        self.ins.append(f'br i1 %{r1}, label %L{l_true}, label %L{l_false}')
+
+        self.ins.append(f'L{l_true}:')
+        i_true = self.get_id()
+        self.ins.append(f'%{i_true} = add i1 1, 0')
+        self.ins.append(f'br label %L{l_next}')
+
+        self.ins.append(f'L{l_false}:')
+        self.l_from = l_false
+        r2, t2 = self.visit(ctx.expr(1))
+        l_from_false = self.l_from
+        i_false = self.get_id()
+        self.ins.append(f'%{i_false} = or i1 %{r1}, %{r2}')
+        self.ins.append(f'br label %L{l_next}')
+
+        self.ins.append(f'L{l_next}:')
+        i = self.get_id()
+
+        self.ins.append(f'%{i} = phi i1 [%{i_true}, %L{l_true}], [%{i_false}, %L{l_from_false}]')  # TODO l_false zmien
+
+        self.l_from = l_next
+
+        return i, self.get_type(ctx)
+
+    def visitEId(self, ctx: LatteParser.EIdContext):
         i = self.get_id()
         r_var, var_t = self.get_variable(ctx, ctx.ID().getText())
         self.ins.append(f'%{i} = load {t_d[var_t]}, {t_d[var_t]}* %{r_var}')
@@ -279,12 +329,12 @@ class LLVMVisitor(LatteVisitor):
             s_idx = self.strings.index(s)
         else:
             self.strings.append(s)
-        self.ins.append(f'%{i} = bitcast [{len(s)+1} x i8]* @s{s_idx} to i8*')
+        self.ins.append(f'%{i} = bitcast [{len(s) + 1} x i8]* @s{s_idx} to i8*')
         return i, self.get_type(ctx)
 
     def visitEParen(self, ctx: LatteParser.EParenContext):
         return self.visit(ctx.expr())
 
     def get_llvm(self):
-        string_decs = [f'@s{i} = internal constant [{len(s)+1} x i8] c"{s}\\00"' for i, s in enumerate(self.strings)]
+        string_decs = [f'@s{i} = internal constant [{len(s) + 1} x i8] c"{s}\\00"' for i, s in enumerate(self.strings)]
         return HEADER + '\n'.join(string_decs) + '\n\n' + '\n'.join(self.ins)

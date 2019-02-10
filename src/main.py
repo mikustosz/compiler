@@ -5,8 +5,6 @@ from gen.LatteParser import LatteParser
 from src.FrontendVisitors import FunctionReaderVisitor, FrontendValidationVisitor, check_reachability
 from src.LLVMVisitor import LLVMVisitor
 from src.CustomErrorListener import CustomErrorListener
-from src.constants import *
-
 
 
 def main(argv, compiler):
@@ -23,11 +21,10 @@ def main(argv, compiler):
     lexer = LatteLexer(input_stream)
     token_stream = CommonTokenStream(lexer)
     parser = LatteParser(token_stream)
-    # TODO uncomment the line for correct errors? But then shows too much errors
-    # lexer._listeners = [CustomErrorListener()]  # Hack to change default behavior of lexer/parser errors
+    # lexer._listeners = [CustomErrorListener()]  # Change default behavior of lexer/parser errors
     # parser._listeners = [CustomErrorListener()]
     tree = parser.program()
-    # print(tree.toStringTree(recog=parser))  # TODO Debug
+    # print(tree.toStringTree(recog=parser))  # Debug
 
     if compiler == "llvm":
         functionReader = FunctionReaderVisitor()
@@ -44,7 +41,6 @@ def main(argv, compiler):
         llvmVisitor.visit(tree)
 
         llvm_code = llvmVisitor.get_llvm()
-        # print(llvm_code)
 
         with open(base_path + ".ll", "w") as file:
             print(llvm_code, file=file)
