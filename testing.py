@@ -2,8 +2,7 @@ import os, sys
 from src.main import main
 
 
-def test_good():
-    base_path = 'test/good/'
+def test_good(base_path):
     names = []
     for f in (os.listdir(base_path)):
         if f[-4:] == '.lat':
@@ -32,8 +31,7 @@ def test_good():
     print(f'{len(failed_tests)} failed tests')
 
 
-def test_bad():
-    base_path = 'test/bad/'
+def test_bad(base_path):
     names = []
     for f in (os.listdir(base_path)):
         if f[-4:] == '.lat':
@@ -49,5 +47,5 @@ def test_bad():
 
 
 if __name__ == "__main__":
-    test_bad()
-    test_good()
+    test_bad('test/bad2/')
+    test_good('test/good2/')

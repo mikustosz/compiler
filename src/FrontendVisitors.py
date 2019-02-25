@@ -278,9 +278,9 @@ class FrontendValidationVisitor(LatteVisitor):
         return x[1]
 
     def visitEInt(self, ctx: LatteParser.EIntContext):
-        # x = int(ctx.INT.getText())
-        # if x > 2147483647 or x < -2147483648:
-        #     raise_frontend_error(ctx, 'Integer number too large')
+        x = int(ctx.INT().getText())
+        if x > 2147483647 or x < -2147483648:
+            raise_frontend_error(ctx, 'Integer number too large')
         return 'int'
 
     def visitETrue(self, ctx: LatteParser.ETrueContext):
