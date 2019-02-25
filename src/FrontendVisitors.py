@@ -114,6 +114,10 @@ class FrontendValidationVisitor(LatteVisitor):
     def visitProgram(self, ctx: LatteParser.ProgramContext):
         if 'main' not in self.functions:
             raise_frontend_error(ctx, 'You should declare the "main" function')
+        if self.functions['main'].type != 'int':
+            raise_frontend_error(ctx, '"main" function should be declared as returning int')
+        if self.functions['main'].args and len(self.functions['main'].args) > 0:
+            raise_frontend_error(ctx, '"main" function should not have any arguments')
         self.visitChildren(ctx)
 
     def visitTopDef(self, ctx: LatteParser.TopDefContext):
@@ -158,14 +162,27 @@ class FrontendValidationVisitor(LatteVisitor):
             raise_frontend_expr_type_error(ctx)
         return self.visitChildren(ctx)
 
+    def visitIncr(self, ctx: LatteParser.IncrContext):
+        var_ID = ctx.ID().getText()
+        _, var_t = self.get_variable(var_ID)
+        if var_t != 'int':
+            raise_frontend_error(ctx, '++ and -- operators work only for variables of int type')
+
+    def visitDecr(self, ctx: LatteParser.DecrContext):
+        self.visitIncr(ctx)
+
     def visitRet(self, ctx: LatteParser.RetContext):
         # expression in return should always bear type of declared function type
         func_ID = find_function_name(ctx)
         func_type = self.functions[func_ID].type
         expr_type = self.visit(ctx.expr())
 
+        if expr_type == 'void' or func_type == 'void':
+            raise_frontend_error(ctx, 'Cannot return type void, write "return;" instead')
+
         if expr_type != func_type:
             raise_frontend_error(ctx, f'Function {func_ID} should return {func_type}, not {expr_type}')
+
         return self.visitChildren(ctx)
 
     def visitVRet(self, ctx: LatteParser.VRetContext):
@@ -177,6 +194,8 @@ class FrontendValidationVisitor(LatteVisitor):
     # check if assigned expression is of correct type
     def visitDecl(self, ctx: LatteParser.DeclContext):
         var_type = ctx.type_().getText()
+        if var_type == 'void':
+            raise_frontend_error(ctx, 'Variable type should not be void')
         for item in ctx.item():
             var_ID = item.ID().getText()
             if var_ID in self.env[-1]:
@@ -194,6 +213,9 @@ class FrontendValidationVisitor(LatteVisitor):
         self.visitChildren(ctx)
 
     def visitCondElse(self, ctx: LatteParser.CondElseContext):
+        self.visitCond(ctx)
+
+    def visitWhile(self, ctx: LatteParser.WhileContext):
         self.visitCond(ctx)
 
     ########### EXPRESSIONS ##############
@@ -220,6 +242,10 @@ class FrontendValidationVisitor(LatteVisitor):
     def visitEAddOp(self, ctx: LatteParser.EAddOpContext):
         type1 = self.visit(ctx.expr(0))
         type2 = self.visit(ctx.expr(1))
+        op = ctx.addOp().getText()
+        if op == '-' and type1 == 'string':
+            raise_frontend_error(ctx, 'There is no "-" operator for strings')
+
         if type1 == type2 and type1 in ['int', 'string']:
             return type1
         raise_frontend_expr_type_error(ctx)
@@ -248,10 +274,13 @@ class FrontendValidationVisitor(LatteVisitor):
         var_ID = ctx.ID().getText()
         x = self.get_variable(var_ID)
         if x is None:
-            raise_frontend_error(ctx, f'Variable {var_ID} was not declared (EId)')
+            raise_frontend_error(ctx, f'Variable {var_ID} was not declared')
         return x[1]
 
     def visitEInt(self, ctx: LatteParser.EIntContext):
+        # x = int(ctx.INT.getText())
+        # if x > 2147483647 or x < -2147483648:
+        #     raise_frontend_error(ctx, 'Integer number too large')
         return 'int'
 
     def visitETrue(self, ctx: LatteParser.ETrueContext):

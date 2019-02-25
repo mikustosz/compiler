@@ -93,9 +93,11 @@ class LLVMVisitor(LatteVisitor):
             i = self.get_id()
             self.ins.append(f'%{i} = alloca {t_d[var_type]}')
 
-            if item.expr() is None:
+            if item.expr() is None:  # declaration without assingment
                 if var_type == 'string':
-                    self.ins.append(f'%{self.get_id()} = bitcast [1 x i8]* @s0 to i8*')
+                    i2 = self.get_id()
+                    self.ins.append(f'%{i2} = bitcast [1 x i8]* @s0 to i8*')
+                    self.ins.append(f'store i8* %{i2}, i8** %{i}')
                 else:
                     self.ins.append(f'store {t_d[var_type]} 0, {t_d[var_type]}* %{i}')
             else:
@@ -115,7 +117,9 @@ class LLVMVisitor(LatteVisitor):
         var_ID = ctx.ID().getText()
         r_var, var_t = self.get_variable(ctx, var_ID)
         i = self.get_id()
-        assert var_t == 'int'
+        if var_t != 'int':
+            raise_runtime_error(ctx, '++ and -- work only for int')
+
         self.ins.append(f'%{i} = load i32, i32* %{r_var}')
         i = self.get_id()
         self.ins.append(f'%{i} = {op} i32 %{i - 1}, 1')

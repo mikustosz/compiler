@@ -1,8 +1,9 @@
-import os
+import os, sys
 from src.main import main
 
-if __name__ == "__main__":
-    base_path = 'test/good2/'
+
+def test_good():
+    base_path = 'test/good/'
     names = []
     for f in (os.listdir(base_path)):
         if f[-4:] == '.lat':
@@ -11,7 +12,8 @@ if __name__ == "__main__":
     print(names)
     failed_tests = []
     for name in names:
-        try: main(['main', f'{base_path}{name}.lat'], 'llvm')
+        try:
+            main(['main', f'{base_path}{name}.lat'], 'llvm')
         except:
             pass
         os.system(f'lli {base_path}{name}.bc > {base_path}{name}.output2')
@@ -28,3 +30,24 @@ if __name__ == "__main__":
         print('=== My out:')
         print(out2)
     print(f'{len(failed_tests)} failed tests')
+
+
+def test_bad():
+    base_path = 'test/bad/'
+    names = []
+    for f in (os.listdir(base_path)):
+        if f[-4:] == '.lat':
+            names.append(f[:-4])
+    names.sort()
+    # print(names)
+    for name in names:
+        print(f'=== {name} ===', file=sys.stderr)
+
+        main(['main', f'{base_path}{name}.lat'], 'llvm')
+
+        print(file=sys.stderr)
+
+
+if __name__ == "__main__":
+    test_bad()
+    test_good()

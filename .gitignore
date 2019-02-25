@@ -2,3 +2,5 @@
 venv/
 *.tar
 __pycache__/
+test/good*
+test/bad*

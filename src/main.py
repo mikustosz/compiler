@@ -23,37 +23,36 @@ def main(argv, compiler):
     parser = LatteParser(token_stream)
     lexer._listeners = [CustomErrorListener()]  # Change default behavior of lexer/parser errors
     parser._listeners = [CustomErrorListener()]
-    try: tree = parser.program()
+    try:
+        tree = parser.program()
+        # print(tree.toStringTree(recog=parser))  # Debug
+        if compiler == "llvm":
+            # Read functions with arguments
+            functionReader = FunctionReaderVisitor()
+            functionReader.visit(tree)
+            functions = functionReader.get_functions()
+
+            # Check types and validate
+            frontendValidation = FrontendValidationVisitor(functions)
+            frontendValidation.visit(tree)
+
+            check_reachability(tree, functions)
+
+            # Generating backend code
+            llvmVisitor = LLVMVisitor(functions)
+            llvmVisitor.visit(tree)
+
+            llvm_code = llvmVisitor.get_llvm()
+
+            with open(base_path + ".ll", "w") as file:
+                print(llvm_code, file=file)
+            print("Generated: " + base_path + ".ll")
+            os.system(f"llvm-as {base_path}.ll")
+            print("Generated: " + base_path + ".bc")
+
+            print('OK', file=sys.stderr)
+        else:
+            raise ValueError("No such compiler")
     except: return
-    # print(tree.toStringTree(recog=parser))  # Debug
-
-    if compiler == "llvm":
-        functionReader = FunctionReaderVisitor()
-        try: functionReader.visit(tree)
-        except: return
-        functions = functionReader.get_functions()
-
-        frontendValidation = FrontendValidationVisitor(functions)
-        try: frontendValidation.visit(tree)
-        except: return
-
-        try: check_reachability(tree, functions)
-        except: return
-        # Generating backend code
-        llvmVisitor = LLVMVisitor(functions)
-        try: llvmVisitor.visit(tree)
-        except: return
-
-        llvm_code = llvmVisitor.get_llvm()
-
-        with open(base_path + ".ll", "w") as file:
-            print(llvm_code, file=file)
-        print("Generated: " + base_path + ".ll")
-        os.system(f"llvm-as {base_path}.ll")
-        print("Generated: " + base_path + ".bc")
-
-        print('OK', file=sys.stderr)
-    else:
-        raise ValueError("No such compiler")
 
 
